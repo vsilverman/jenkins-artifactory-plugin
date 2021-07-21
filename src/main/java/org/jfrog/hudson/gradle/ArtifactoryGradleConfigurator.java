@@ -67,28 +67,28 @@ import java.util.Map;
  */
 public class ArtifactoryGradleConfigurator extends BuildWrapper implements DeployerOverrider, ResolverOverrider,
         BuildInfoAwareConfigurator, MultiConfigurationAware {
-    public final boolean deployMaven;
-    public final boolean deployIvy;
-    public final String remotePluginLocation;
-    public final boolean deployBuildInfo;
-    public final boolean includeEnvVars;
-    private final CredentialsConfig deployerCredentialsConfig;
-    private final CredentialsConfig resolverCredentialsConfig;
-    private final String ivyPattern;
-    private final boolean enableIssueTrackerIntegration;
-    private final boolean aggregateBuildIssues;
-    private final String artifactPattern;
-    private final Boolean useMavenPatterns;
-    private final IncludesExcludes artifactDeploymentPatterns;
-    private final boolean discardOldBuilds;
-    private final boolean passIdentifiedDownstream;
-    private final GradleReleaseWrapper releaseWrapper;
-    private final boolean discardBuildArtifacts;
-    private final boolean asyncBuildRetention;
-    private final String deploymentProperties;
-    private final Boolean useArtifactoryGradlePlugin;
-    private final boolean allowPromotionOfNonStagedBuilds;
-    private final boolean filterExcludedArtifactsFromBuild;
+    public boolean deployMaven;
+    public boolean deployIvy;
+    public String remotePluginLocation;
+    public boolean deployBuildInfo;
+    public boolean includeEnvVars;
+    private CredentialsConfig deployerCredentialsConfig;
+    private CredentialsConfig resolverCredentialsConfig;
+    private String ivyPattern;
+    private boolean enableIssueTrackerIntegration;
+    private boolean aggregateBuildIssues;
+    private String artifactPattern;
+    private Boolean useMavenPatterns;
+    private IncludesExcludes artifactDeploymentPatterns;
+    private boolean discardOldBuilds;
+    private boolean passIdentifiedDownstream;
+    private GradleReleaseWrapper releaseWrapper;
+    private boolean discardBuildArtifacts;
+    private boolean asyncBuildRetention;
+    private String deploymentProperties;
+    private Boolean useArtifactoryGradlePlugin;
+    private boolean allowPromotionOfNonStagedBuilds;
+    private boolean filterExcludedArtifactsFromBuild;
     private final ServerDetails resolverDetails;
     private String defaultPromotionTargetRepository;
     private ServerDetails deployerDetails;
@@ -169,6 +169,19 @@ public class ArtifactoryGradleConfigurator extends BuildWrapper implements Deplo
         this.artifactoryCombinationFilter = artifactoryCombinationFilter;
         this.customBuildName = customBuildName;
         this.overrideBuildName = overrideBuildName;
+    }
+
+    /**
+     * Constructor for the DeployerResolverOverriderConverterTest
+     *
+     * @param details         - Old server details
+     * @param deployerDetails - New deployer details
+     * @param resolverDetails - new resolver details
+     */
+    public ArtifactoryGradleConfigurator(ServerDetails details, ServerDetails deployerDetails, ServerDetails resolverDetails) {
+        this.details = details;
+        this.deployerDetails = deployerDetails;
+        this.resolverDetails = resolverDetails;
     }
 
     public GradleReleaseWrapper getReleaseWrapper() {
@@ -521,14 +534,13 @@ public class ArtifactoryGradleConfigurator extends BuildWrapper implements Deplo
                 if (result != null && result.isBetterOrEqualTo(Result.SUCCESS)) {
                     if (isDeployBuildInfo()) {
                         String buildName = BuildUniqueIdentifierHelper.getBuildNameConsiderOverride(ArtifactoryGradleConfigurator.this, build);
-                        build.getActions().add(new BuildInfoResultAction(getArtifactoryUrl(), build, buildName));
+                        build.addAction(new BuildInfoResultAction(getArtifactoryUrl(), build, buildName));
                         ArtifactoryGradleConfigurator configurator =
                                 ActionableHelper.getBuildWrapper(build.getProject(),
                                         ArtifactoryGradleConfigurator.class);
                         if (configurator != null) {
                             if (isAllowPromotionOfNonStagedBuilds()) {
-                                build.getActions()
-                                        .add(new UnifiedPromoteBuildAction(build, ArtifactoryGradleConfigurator.this));
+                                build.addAction(new UnifiedPromoteBuildAction(build, ArtifactoryGradleConfigurator.this));
                             }
                         }
                     }
@@ -608,12 +620,11 @@ public class ArtifactoryGradleConfigurator extends BuildWrapper implements Deplo
     }
 
     public ArtifactoryServer getArtifactoryServer() {
-        return RepositoriesUtils.getArtifactoryServer(getArtifactoryName(), getDescriptor().getArtifactoryServers());
+        return RepositoriesUtils.getArtifactoryServer(getArtifactoryName());
     }
 
     public ArtifactoryServer getArtifactoryResolverServer() {
-        return RepositoriesUtils.getArtifactoryServer(getArtifactoryResolverName(),
-                getDescriptor().getArtifactoryServers());
+        return RepositoriesUtils.getArtifactoryServer(getArtifactoryResolverName());
     }
 
     public List<Repository> getReleaseRepositories() {
@@ -736,7 +747,7 @@ public class ArtifactoryGradleConfigurator extends BuildWrapper implements Deplo
             releaseAction.reset();
 
             // remove the release action from the build. the stage action is the point of interaction for successful builds
-            run.getActions().remove(releaseAction);
+            run.removeAction(releaseAction);
         }
     }
 

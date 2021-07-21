@@ -23,8 +23,12 @@ import org.jfrog.build.api.Artifact;
 import org.jfrog.build.api.Build;
 import org.jfrog.build.api.Dependency;
 import org.jfrog.build.api.Module;
-import org.jfrog.build.extractor.clientConfiguration.client.ArtifactoryBuildInfoClient;
+import org.jfrog.build.api.util.Log;
+import org.jfrog.build.extractor.clientConfiguration.client.artifactory.ArtifactoryManager;
+import org.jfrog.build.extractor.clientConfiguration.client.response.GetAllBuildNumbersResponse;
+import org.jfrog.build.extractor.docker.DockerJavaWrapper;
 import org.jfrog.hudson.ArtifactoryServer;
+import org.jfrog.hudson.JFrogPlatformInstance;
 import org.jfrog.hudson.trigger.ArtifactoryTrigger;
 
 import java.io.IOException;
@@ -40,6 +44,7 @@ import java.util.stream.Collectors;
 
 import static org.jfrog.artifactory.client.model.impl.RepositoryTypeImpl.*;
 import static org.jfrog.hudson.TestUtils.getAndAssertChild;
+import static org.jfrog.hudson.pipeline.integration.PipelineTestBase.artifactoryManager;
 import static org.junit.Assert.*;
 
 /**
@@ -48,6 +53,7 @@ import static org.junit.Assert.*;
 class ITestUtils {
 
     private static final Pattern REPO_PATTERN = Pattern.compile("^jenkins-artifactory-tests(-\\w*)+-(\\d*)$");
+    private static final Pattern BUILD_NUMBER_PATTERN = Pattern.compile("^/(\\d+)+-?(\\d*)$");
     private static final long currentTime = System.currentTimeMillis();
 
     /**
@@ -93,7 +99,7 @@ class ITestUtils {
                 .map(REPO_PATTERN::matcher)
                 .filter(Matcher::matches)
 
-                // Filter repositories newer than 2 hours
+                // Filter repositories newer than 24 hours
                 .filter(ITestUtils::isRepositoryOld)
 
                 // Get repository key
@@ -107,14 +113,56 @@ class ITestUtils {
     }
 
     /**
-     * Return true if the repository was created more than 2 hours ago.
+     * Clean up old build runs which have been created more than 24 hours ago.
+     *
+     * @param buildName - The build name to be cleaned.
+     */
+    public static void cleanOldBuilds(String buildName, String project) throws IOException {
+        // Get build numbers for deletion
+        String[] oldBuildNumbers = artifactoryManager.getAllBuildNumbers(buildName, project).buildsNumbers.stream()
+
+                // Get build numbers.
+                .map(GetAllBuildNumbersResponse.BuildsNumberDetails::getUri)
+
+                //  Remove duplicates.
+                .distinct()
+
+                // Match build number pattern.
+                .map(BUILD_NUMBER_PATTERN::matcher)
+                .filter(Matcher::matches)
+
+                // Filter build numbers newer than 24 hours.
+                .filter(ITestUtils::isOldBuild)
+
+                // Get build number.
+                .map(matcher -> StringUtils.removeStart(matcher.group(), "/"))
+                .toArray(String[]::new);
+
+        if (oldBuildNumbers.length > 0) {
+            artifactoryManager.deleteBuilds(buildName, project, true, oldBuildNumbers);
+        }
+    }
+
+    /**
+     * Return true if the repository was created more than 24 hours ago.
      *
      * @param repoMatcher - Repo regex matcher on REPO_PATTERN
-     * @return true if the repository was created more than 2 hours ago
+     * @return true if the repository was created more than 24 hours ago
      */
     private static boolean isRepositoryOld(Matcher repoMatcher) {
         long repoTimestamp = Long.parseLong(repoMatcher.group(2));
         return TimeUnit.MILLISECONDS.toHours(currentTime - repoTimestamp) >= 24;
+    }
+
+    /**
+     * Return true if the build was created more than 24 hours ago.
+     *
+     * @param buildMatcher - Build regex matcher on BUILD_NUMBER_PATTERN
+     * @return true if the Build was created more than 24 hours ago
+     */
+    private static boolean isOldBuild(Matcher buildMatcher) {
+        long repoTimestamp = Long.parseLong(buildMatcher.group(1));
+        return TimeUnit.MILLISECONDS.toHours(currentTime - repoTimestamp) >= 0;
     }
 
     /**
@@ -170,13 +218,13 @@ class ITestUtils {
     /**
      * Get build info from Artifactory.
      *
-     * @param buildInfoClient - Artifactory build-info client
-     * @param buildName       - Build name
-     * @param buildNumber     - Build number
+     * @param artifactoryManager - ArtifactoryManager
+     * @param buildName          - Build name
+     * @param buildNumber        - Build number
      * @return build info for the specified build name and number
      */
-    static Build getBuildInfo(ArtifactoryBuildInfoClient buildInfoClient, String buildName, String buildNumber) throws IOException {
-        return buildInfoClient.getBuildInfo(buildName, buildNumber);
+    static Build getBuildInfo(ArtifactoryManager artifactoryManager, String buildName, String buildNumber, String project) throws IOException {
+        return artifactoryManager.getBuildInfo(buildName, buildNumber, project);
     }
 
     /**
@@ -281,6 +329,17 @@ class ITestUtils {
     }
 
     /**
+     * Assert Docker module contains "docker.image.id" and "docker.captured.image".
+     *
+     * @param module - Docker module
+     */
+    static void assertDockerModuleProperties(Module module) {
+        Properties moduleProps = module.getProperties();
+        assertTrue("Module " + module.getId() + " expected to contain 'docker.image.id' property.", moduleProps.containsKey("docker.image.id"));
+        assertTrue("Module " + module.getId() + " expected to contain 'docker.captured.image' property.", moduleProps.containsKey("docker.captured.image"));
+    }
+
+    /**
      * Delete build in Artifactory.
      *
      * @param artifactoryClient - Artifactory java client
@@ -331,7 +390,10 @@ class ITestUtils {
         assertNotNull(artifactoryTrigger);
         ArtifactoryServer server = artifactoryTrigger.getArtifactoryServer();
         assertNotNull(server);
-        assertTrue(artifactoryTrigger.getArtifactoryServers().contains(server));
+        List<JFrogPlatformInstance> jfrogInstances = artifactoryTrigger.getJfrogInstances();
+        assertTrue(jfrogInstances.stream()
+                .filter(s -> StringUtils.equals(s.getId(), server.getServerId()))
+                .anyMatch(s -> StringUtils.equals(s.getArtifactoryUrl(), server.getArtifactoryUrl())));
         assertEquals("libs-release-local", artifactoryTrigger.getPaths());
         assertEquals("* * * * *", artifactoryTrigger.getSpec());
         return artifactoryTrigger;
@@ -339,5 +401,18 @@ class ITestUtils {
 
     private static String encodeBuildName(String buildName) throws UnsupportedEncodingException {
         return URLEncoder.encode(buildName, "UTF-8").replace("+", "%20");
+    }
+
+    public static String getImageId(String image, String host, Log logger) {
+        String id = DockerJavaWrapper.InspectImage(image, host, Collections.emptyMap(), logger).getId();
+        assertNotNull(id);
+        return id.replace(":", "__");
+    }
+
+    public static void cleanupBuilds(WorkflowRun pipelineResults, String buildName, String project, String... buildNumbers) throws IOException {
+        if (pipelineResults != null && Objects.requireNonNull(pipelineResults.getResult()).completeBuild) {
+            artifactoryManager.deleteBuilds(buildName, project, true, buildNumbers);
+        }
+        cleanOldBuilds(buildName, project);
     }
 }

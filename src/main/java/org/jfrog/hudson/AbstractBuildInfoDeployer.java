@@ -14,7 +14,7 @@ import org.jfrog.build.api.builder.PromotionStatusBuilder;
 import org.jfrog.build.api.release.Promotion;
 import org.jfrog.build.extractor.clientConfiguration.IncludeExcludePatterns;
 import org.jfrog.build.extractor.clientConfiguration.PatternMatcher;
-import org.jfrog.build.extractor.clientConfiguration.client.ArtifactoryBuildInfoClient;
+import org.jfrog.build.extractor.clientConfiguration.client.artifactory.ArtifactoryManager;
 import org.jfrog.hudson.action.ActionableHelper;
 import org.jfrog.hudson.release.ReleaseAction;
 import org.jfrog.hudson.util.BuildUniqueIdentifierHelper;
@@ -33,16 +33,16 @@ import java.util.*;
 public class AbstractBuildInfoDeployer {
     protected Run build;
     protected TaskListener listener;
-    protected ArtifactoryBuildInfoClient client;
+    protected ArtifactoryManager artifactoryManager;
     private BuildInfoAwareConfigurator configurator;
     private EnvVars env;
 
     public AbstractBuildInfoDeployer(BuildInfoAwareConfigurator configurator, Run build,
-                                     TaskListener listener, ArtifactoryBuildInfoClient client) throws IOException, InterruptedException {
+                                     TaskListener listener, ArtifactoryManager artifactoryManager) throws IOException, InterruptedException {
         this.configurator = configurator;
         this.build = build;
         this.listener = listener;
-        this.client = client;
+        this.artifactoryManager = artifactoryManager;
         this.env = build.getEnvironment(listener);
     }
 
@@ -103,7 +103,7 @@ public class AbstractBuildInfoDeployer {
 
         addBuildInfoProperties(builder);
 
-        if ((Jenkins.getInstance().getPlugin("jira") != null) && configurator.isEnableIssueTrackerIntegration()) {
+        if ((Jenkins.get().getPlugin("jira") != null) && configurator.isEnableIssueTrackerIntegration()) {
             new IssuesTrackerHelper(build, listener, configurator.isAggregateBuildIssues(),
                     configurator.getAggregationBuildStatus()).setIssueTrackerInfo(builder);
         }
@@ -125,7 +125,7 @@ public class AbstractBuildInfoDeployer {
         Build buildInfo = builder.build();
         // for backwards compatibility for Artifactory 2.2.3
         if (parent != null) {
-            buildInfo.setParentBuildId(parent.getUpstreamProject());
+            buildInfo.setParentName(parent.getUpstreamProject());
         }
 
         return buildInfo;

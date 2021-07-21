@@ -42,7 +42,7 @@ public abstract class AbstractBuildWrapperDescriptor extends BuildWrapperDescrip
         this.item = item;
         Class<?> itemClass = item.getClass();
         return itemClass.isAssignableFrom(FreeStyleProject.class) || itemClass.isAssignableFrom(MatrixProject.class) ||
-                (Jenkins.getInstance().getPlugin(PluginsUtils.MULTIJOB_PLUGIN_ID) != null &&
+                (Jenkins.get().getPlugin(PluginsUtils.MULTIJOB_PLUGIN_ID) != null &&
                         itemClass.isAssignableFrom(MultiJobProject.class)) ||
                 PluginsUtils.PROMOTION_BUILD_PLUGIN_CLASS.equals(itemClass.getSimpleName());
     }
@@ -61,12 +61,12 @@ public abstract class AbstractBuildWrapperDescriptor extends BuildWrapperDescrip
     }
 
     /**
-     * Returns the list of {@link org.jfrog.hudson.ArtifactoryServer} configured.
-     *
+     * Returns the list of {@link JFrogPlatformInstance} configured.
+     * Used by Jenkins Jelly for displaying values.
      * @return can be empty but never null.
      */
-    public List<ArtifactoryServer> getArtifactoryServers() {
-        return RepositoriesUtils.getArtifactoryServers();
+    public List<JFrogPlatformInstance> getJfrogInstances() {
+        return RepositoriesUtils.getJFrogPlatformInstances();
     }
 
     @SuppressWarnings("unused")
@@ -76,7 +76,7 @@ public abstract class AbstractBuildWrapperDescriptor extends BuildWrapperDescrip
 
     @SuppressWarnings("unused")
     public boolean isJiraPluginEnabled() {
-        return (Jenkins.getInstance().getPlugin("jira") != null);
+        return (Jenkins.get().getPlugin("jira") != null);
 
     }
 
@@ -95,7 +95,7 @@ public abstract class AbstractBuildWrapperDescriptor extends BuildWrapperDescrip
                                                                     String password, boolean overrideCredentials) {
         RefreshServerResponse response = new RefreshServerResponse();
         CredentialsConfig credentialsConfig = new CredentialsConfig(username, password, credentialsId, overrideCredentials);
-        ArtifactoryServer artifactoryServer = RepositoriesUtils.getArtifactoryServer(url, RepositoriesUtils.getArtifactoryServers());
+        ArtifactoryServer artifactoryServer = RepositoriesUtils.getArtifactoryServer(url);
         try {
             List<VirtualRepository> virtualRepositories = refreshVirtualRepositories(artifactoryServer, credentialsConfig);
             response.setVirtualRepositories(virtualRepositories);
@@ -124,7 +124,7 @@ public abstract class AbstractBuildWrapperDescriptor extends BuildWrapperDescrip
                                                                     String password, boolean overrideCredentials, boolean refreshUserPlugins) {
         RefreshServerResponse response = new RefreshServerResponse();
         CredentialsConfig credentialsConfig = new CredentialsConfig(username, password, credentialsId, overrideCredentials);
-        ArtifactoryServer artifactoryServer = RepositoriesUtils.getArtifactoryServer(url, RepositoriesUtils.getArtifactoryServers());
+        ArtifactoryServer artifactoryServer = RepositoriesUtils.getArtifactoryServer(url);
         try {
             response.setRepositories(refreshRepositories(artifactoryServer, credentialsConfig));
             if (refreshUserPlugins) {

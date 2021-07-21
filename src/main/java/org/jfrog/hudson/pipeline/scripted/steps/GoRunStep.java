@@ -3,17 +3,19 @@ package org.jfrog.hudson.pipeline.scripted.steps;
 import com.google.inject.Inject;
 import hudson.Extension;
 import org.jenkinsci.plugins.workflow.steps.*;
+import org.jfrog.hudson.ArtifactoryServer;
 import org.jfrog.hudson.pipeline.common.executors.GoRunExecutor;
 import org.jfrog.hudson.pipeline.ArtifactorySynchronousNonBlockingStepExecution;
 import org.jfrog.hudson.pipeline.common.types.buildInfo.BuildInfo;
 import org.jfrog.hudson.pipeline.common.types.builds.GoBuild;
+import org.jfrog.hudson.pipeline.common.types.resolvers.Resolver;
 import org.kohsuke.stapler.DataBoundConstructor;
 
 import java.io.IOException;
 
 @SuppressWarnings("unused")
 public class GoRunStep extends AbstractStepImpl {
-
+    static final String  STEP_NAME = "artifactoryGoRun";
     private BuildInfo buildInfo;
     private GoBuild goBuild;
     private String path;
@@ -40,10 +42,24 @@ public class GoRunStep extends AbstractStepImpl {
         }
 
         @Override
-        protected BuildInfo run() throws Exception {
+        protected BuildInfo runStep() throws Exception {
             GoRunExecutor goRunExecutor = new GoRunExecutor(getContext(), step.buildInfo, step.goBuild, step.path, step.goCmdArgs, step.module, ws, listener, env, build);
             goRunExecutor.execute();
             return goRunExecutor.getBuildInfo();
+        }
+
+        @Override
+        public ArtifactoryServer getUsageReportServer() {
+            Resolver resolver = step.goBuild.getResolver();
+            if (resolver != null) {
+                return resolver.getArtifactoryServer();
+            }
+            return null;
+        }
+
+        @Override
+        public String getUsageReportFeatureName() {
+            return STEP_NAME;
         }
     }
 
@@ -56,7 +72,7 @@ public class GoRunStep extends AbstractStepImpl {
 
         @Override
         public String getFunctionName() {
-            return "artifactoryGoRun";
+            return STEP_NAME;
         }
 
         @Override

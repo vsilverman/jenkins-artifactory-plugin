@@ -2,12 +2,14 @@ package org.jfrog.hudson.util;
 
 import com.google.common.base.Function;
 import com.google.common.collect.Lists;
-import hudson.model.*;
+import hudson.model.AbstractBuild;
+import hudson.model.BuildListener;
+import hudson.model.Hudson;
+import hudson.model.Item;
 import jenkins.model.Jenkins;
 import org.apache.commons.lang.StringUtils;
 import org.jfrog.build.api.util.NullLog;
-import org.jfrog.build.extractor.clientConfiguration.client.ArtifactoryBaseClient;
-import org.jfrog.build.extractor.clientConfiguration.client.ArtifactoryBuildInfoClient;
+import org.jfrog.build.extractor.clientConfiguration.client.artifactory.ArtifactoryManager;
 import org.jfrog.hudson.*;
 
 import java.io.IOException;
@@ -46,10 +48,10 @@ public abstract class RepositoriesUtils {
         return server.getVirtualRepositoryKeys(resolverOverrider, null);
     }
 
-    public static List<VirtualRepository> generateVirtualRepos(ArtifactoryBuildInfoClient client) throws IOException {
+    public static List<VirtualRepository> generateVirtualRepos(ArtifactoryManager artifactoryManager) throws IOException {
         List<VirtualRepository> virtualRepositories;
 
-        List<String> keys = client.getVirtualRepositoryKeys();
+        List<String> keys = artifactoryManager.getVirtualRepositoriesKeys();
         virtualRepositories = Lists.newArrayList(Lists.transform(keys, new Function<String, VirtualRepository>() {
             public VirtualRepository apply(String from) {
                 return new VirtualRepository(from, from);
@@ -66,25 +68,25 @@ public abstract class RepositoriesUtils {
         CredentialsConfig preferredResolver = CredentialManager.getPreferredResolver(credentialsConfig, artifactoryServer);
         Credentials resolverCredentials = preferredResolver.provideCredentials(item);
 
-        ArtifactoryBuildInfoClient client;
+        ArtifactoryManager artifactoryManager;
         if (StringUtils.isNotBlank(resolverCredentials.getUsername()) || StringUtils.isNotBlank(resolverCredentials.getAccessToken())) {
-            client = new ArtifactoryBuildInfoClient(url, resolverCredentials.getUsername(), resolverCredentials.getPassword(),
+            artifactoryManager = new ArtifactoryManager(url, resolverCredentials.getUsername(), resolverCredentials.getPassword(),
                     resolverCredentials.getAccessToken(), new NullLog());
         } else {
-            client = new ArtifactoryBuildInfoClient(url, new NullLog());
+            artifactoryManager = new ArtifactoryManager(url, new NullLog());
         }
         try {
-            client.setConnectionTimeout(artifactoryServer.getTimeout());
-            setRetryParams(artifactoryServer, client);
+            artifactoryManager.setConnectionTimeout(artifactoryServer.getTimeout());
+            setRetryParams(artifactoryServer, artifactoryManager);
 
             if (Jenkins.get().proxy != null && !artifactoryServer.isBypassProxy()) {
-                client.setProxyConfiguration(createProxyConfiguration());
+                artifactoryManager.setProxyConfiguration(createProxyConfiguration());
             }
 
-            virtualRepositories = RepositoriesUtils.generateVirtualRepos(client);
+            virtualRepositories = RepositoriesUtils.generateVirtualRepos(artifactoryManager);
             return virtualRepositories;
         } finally {
-            client.close();
+            artifactoryManager.close();
         }
     }
 
@@ -94,32 +96,53 @@ public abstract class RepositoriesUtils {
         CredentialsConfig preferredDeployer = CredentialManager.getPreferredDeployer(credentialsConfig, artifactoryServer);
         Credentials deployerCredentials = preferredDeployer.provideCredentials(item);
 
-        ArtifactoryBuildInfoClient client;
+        ArtifactoryManager artifactoryManager;
         if (StringUtils.isNotBlank(deployerCredentials.getUsername()) || StringUtils.isNotBlank(deployerCredentials.getAccessToken())) {
-            client = new ArtifactoryBuildInfoClient(url, deployerCredentials.getUsername(), deployerCredentials.getPassword(),
+            artifactoryManager = new ArtifactoryManager(url, deployerCredentials.getUsername(), deployerCredentials.getPassword(),
                     deployerCredentials.getAccessToken(), new NullLog());
         } else {
-            client = new ArtifactoryBuildInfoClient(url, new NullLog());
+            artifactoryManager = new ArtifactoryManager(url, new NullLog());
         }
         try {
-            client.setConnectionTimeout(artifactoryServer.getTimeout());
-            setRetryParams(artifactoryServer, client);
+            artifactoryManager.setConnectionTimeout(artifactoryServer.getTimeout());
+            setRetryParams(artifactoryServer, artifactoryManager);
             if (Jenkins.get().proxy != null && !artifactoryServer.isBypassProxy()) {
-                client.setProxyConfiguration(createProxyConfiguration());
+                artifactoryManager.setProxyConfiguration(createProxyConfiguration());
             }
 
-            localRepository = client.getLocalRepositoriesKeys();
+            localRepository = artifactoryManager.getLocalRepositoriesKeys();
             return localRepository;
         } finally {
-            client.close();
+            artifactoryManager.close();
         }
     }
 
-    public static ArtifactoryServer getArtifactoryServer(String artifactoryIdentity, List<ArtifactoryServer> artifactoryServers) {
-        if (artifactoryServers != null) {
-            for (ArtifactoryServer server : artifactoryServers) {
-                if (server.getArtifactoryUrl().equals(artifactoryIdentity) || server.getServerId().equals(artifactoryIdentity)) {
-                    return server;
+    /**
+     * Search for Artifactory server by `key` (could be Artifactory server URL or serverId).
+     *
+     * @param key - The key on which to do a search.
+     * @return - ArtifactoryServer
+     */
+    public static ArtifactoryServer getArtifactoryServer(String key) {
+        JFrogPlatformInstance JFrogPlatformInstance = getJFrogPlatformInstances(key);
+        if (JFrogPlatformInstance != null) {
+            return JFrogPlatformInstance.getArtifactory();
+        }
+        return null;
+    }
+
+    /**
+     * Search for JFrog instance by `key` (could be Artifactory server URL or serverId).
+     *
+     * @param key - The key on which to do a search.
+     * @return - JFrogPlatformInstance
+     */
+    public static JFrogPlatformInstance getJFrogPlatformInstances(String key) {
+        List<JFrogPlatformInstance> jfrogInstances = getJFrogPlatformInstances();
+        if (jfrogInstances != null && jfrogInstances.size() > 0) {
+            for (JFrogPlatformInstance JFrogPlatformInstance : jfrogInstances) {
+                if (JFrogPlatformInstance.getArtifactory().getArtifactoryUrl().equals(key) || JFrogPlatformInstance.getArtifactory().getServerId().equals(key)) {
+                    return JFrogPlatformInstance;
                 }
             }
         }
@@ -127,14 +150,14 @@ public abstract class RepositoriesUtils {
     }
 
     /**
-     * Returns the list of {@link org.jfrog.hudson.ArtifactoryServer} configured.
+     * Returns the list of {@link JFrogPlatformInstance} configured.
      *
      * @return can be empty but never null.
      */
-    public static List<ArtifactoryServer> getArtifactoryServers() {
+    public static List<JFrogPlatformInstance> getJFrogPlatformInstances() {
         ArtifactoryBuilder.DescriptorImpl descriptor = (ArtifactoryBuilder.DescriptorImpl)
-                Hudson.getInstance().getDescriptor(ArtifactoryBuilder.class);
-        return descriptor.getArtifactoryServers();
+                Hudson.get().getDescriptor(ArtifactoryBuilder.class);
+        return descriptor.getJfrogInstances();
     }
 
     public static List<Repository> createRepositoriesList(List<String> repositoriesValueList) {
@@ -181,17 +204,17 @@ public abstract class RepositoriesUtils {
         }
     }
 
-    private static void setRetryParams(ArtifactoryServer artifactoryServer, ArtifactoryBuildInfoClient client) {
-        setRetryParams(artifactoryServer.getConnectionRetry(), client);
+    private static void setRetryParams(ArtifactoryServer artifactoryServer, ArtifactoryManager artifactoryManager) {
+        setRetryParams(artifactoryServer.getConnectionRetry(), artifactoryManager);
     }
 
     /**
      * Sets the params of the retry mechanism
      *
-     * @param connectionRetry - The max number of retries configured
-     * @param client          - The client to set the values
+     * @param connectionRetry    - The max number of retries configured
+     * @param artifactoryManager - The ArtifactoryManager to set the values
      */
-    public static void setRetryParams(int connectionRetry, ArtifactoryBaseClient client) {
-        client.setConnectionRetries(connectionRetry);
+    public static void setRetryParams(int connectionRetry, ArtifactoryManager artifactoryManager) {
+        artifactoryManager.setConnectionRetries(connectionRetry);
     }
 }

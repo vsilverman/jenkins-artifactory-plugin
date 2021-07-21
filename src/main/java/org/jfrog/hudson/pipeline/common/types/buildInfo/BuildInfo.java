@@ -2,6 +2,7 @@ package org.jfrog.hudson.pipeline.common.types.buildInfo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ArrayListMultimap;
+import hudson.EnvVars;
 import hudson.FilePath;
 import hudson.model.Run;
 import hudson.model.TaskListener;
@@ -12,8 +13,9 @@ import org.jenkinsci.plugins.scriptsecurity.sandbox.whitelists.Whitelisted;
 import org.jenkinsci.plugins.workflow.cps.CpsScript;
 import org.jfrog.build.api.*;
 import org.jfrog.build.api.builder.BuildInfoBuilder;
+import org.jfrog.build.api.builder.ModuleBuilder;
 import org.jfrog.build.client.DeployableArtifactDetail;
-import org.jfrog.build.extractor.clientConfiguration.client.ArtifactoryBuildInfoClient;
+import org.jfrog.build.extractor.clientConfiguration.client.artifactory.ArtifactoryManager;
 import org.jfrog.build.extractor.clientConfiguration.deploy.DeployDetails;
 import org.jfrog.build.extractor.clientConfiguration.deploy.DeployableArtifactsUtils;
 import org.jfrog.hudson.pipeline.common.ArtifactoryConfigurator;
@@ -23,7 +25,6 @@ import org.jfrog.hudson.util.BuildUniqueIdentifierHelper;
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
-import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -38,6 +39,7 @@ public class BuildInfo implements Serializable {
 
     private String name; // Build name
     private String number; // Build number
+    private String project; // Project in Artifactory
     private Date startDate;
     private BuildRetention retention;
     // The candidates artifacts to be deployed in the 'deployArtifacts' step, sorted by module name.
@@ -73,6 +75,12 @@ public class BuildInfo implements Serializable {
     }
 
     @Whitelisted
+    public void setProject(String project) {
+            this.project = project;
+            this.issues.setProject(project);
+    }
+
+    @Whitelisted
     public String getName() {
         return name;
     }
@@ -80,6 +88,11 @@ public class BuildInfo implements Serializable {
     @Whitelisted
     public String getNumber() {
         return number;
+    }
+
+    @Whitelisted
+    public String getProject() {
+        return project;
     }
 
     @Whitelisted
@@ -227,21 +240,21 @@ public class BuildInfo implements Serializable {
         this.agentName = agentName;
     }
 
-    Map<String, String> getEnvVars() {
+    public Map<String, String> getEnvVars() {
         return env.getEnvVars();
     }
 
-    Map<String, String> getSysVars() {
+    public Map<String, String> getSysVars() {
         return env.getSysVars();
     }
 
-    org.jfrog.build.api.Issues getConvertedIssues() {
+    public org.jfrog.build.api.Issues getConvertedIssues() {
         return this.issues.convertFromPipelineIssues();
     }
 
-    BuildInfoDeployer createDeployer(Run build, TaskListener listener, ArtifactoryConfigurator config, ArtifactoryBuildInfoClient client)
-            throws InterruptedException, NoSuchAlgorithmException, IOException {
-        return new BuildInfoDeployer(config, client, build, listener, new BuildInfoAccessor(this));
+    public BuildInfoDeployer createDeployer(Run build, TaskListener listener, ArtifactoryConfigurator config, ArtifactoryManager artifactoryManager, String platformUrl)
+            throws InterruptedException, IOException {
+        return new BuildInfoDeployer(config, artifactoryManager, build, listener, this, platformUrl);
     }
 
     public void setCpsScript(CpsScript cpsScript) {
@@ -291,6 +304,45 @@ public class BuildInfo implements Serializable {
         } else {
             // Append the other module into the existing module with the same name.
             currentModule.append(other);
+        }
+    }
+
+    public void appendDependencies(List<Dependency> dependencies, String moduleId) {
+        Module defaultModule = new ModuleBuilder()
+                .id(moduleId)
+                .dependencies(dependencies)
+                .build();
+        addDefaultModule(defaultModule, moduleId);
+    }
+
+    public void appendArtifacts(List<Artifact> artifacts, String moduleId) {
+        Module defaultModule = new ModuleBuilder()
+                .id(moduleId)
+                .artifacts(artifacts)
+                .build();
+        addDefaultModule(defaultModule, moduleId);
+    }
+
+    private void addDefaultModule(Module defaultModule, String moduleId){
+        Module currentModule = this.getModules().stream()
+                // Check if the default module already exists.
+                .filter(module -> StringUtils.equals(module.getId(), moduleId))
+                .findAny()
+                .orElse(null);
+        if (currentModule != null) {
+            currentModule.append(defaultModule);
+        } else {
+            this.getModules().add(defaultModule);
+        }
+    }
+
+    public void filterVariables() {
+        this.getEnv().filter();
+    }
+
+    public void captureVariables(EnvVars envVars, Run build, TaskListener listener)  {
+        if (env.isCapture()) {
+            env.collectVariables(envVars, build, listener);
         }
     }
 

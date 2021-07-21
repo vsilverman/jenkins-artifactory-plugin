@@ -1,11 +1,14 @@
 package org.jfrog.hudson.pipeline.common.types;
 
 import com.google.common.collect.Maps;
+import hudson.model.Item;
 import org.jenkinsci.plugins.scriptsecurity.sandbox.whitelists.Whitelisted;
 import org.jenkinsci.plugins.workflow.cps.CpsScript;
 import org.jfrog.hudson.CredentialsConfig;
 import org.jfrog.hudson.pipeline.common.Utils;
 import org.jfrog.hudson.pipeline.common.types.buildInfo.BuildInfo;
+import org.jfrog.hudson.util.Credentials;
+import org.jfrog.hudson.util.plugins.PluginsUtils;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -19,6 +22,7 @@ import static org.jfrog.hudson.pipeline.common.Utils.appendBuildInfo;
 
 /**
  * Created by romang on 4/21/16.
+ * Represents an instance of Artifactory configuration from pipeline script.
  */
 public class ArtifactoryServer implements Serializable {
     public static final long serialVersionUID = 1L;
@@ -28,6 +32,7 @@ public class ArtifactoryServer implements Serializable {
     public static final String SERVER = "server";
     public static final String BUILD_NAME = "buildName";
     public static final String BUILD_NUMBER = "buildNumber";
+    public static final String PROJECT = "project";
     public static final String FAIL_NO_OP = "failNoOp";
     public static final String MODULE = "module";
     public static final String PROPERTIES = "props";
@@ -35,6 +40,7 @@ public class ArtifactoryServer implements Serializable {
 
     private String serverName;
     private String url;
+    private String platformUrl;
     private String username;
     private String password;
     private String credentialsId;
@@ -64,6 +70,22 @@ public class ArtifactoryServer implements Serializable {
         this.url = url;
         this.credentialsId = credentialsId;
         this.usesCredentialsId = true;
+    }
+
+    public ArtifactoryServer(org.jfrog.hudson.ArtifactoryServer jenkinsArtifactoryServer, Item parent) {
+        serverName = jenkinsArtifactoryServer.getServerId();
+        url = jenkinsArtifactoryServer.getArtifactoryUrl();
+        this.deploymentThreads = jenkinsArtifactoryServer.getDeploymentThreads();
+        if (PluginsUtils.isCredentialsPluginEnabled()) {
+            credentialsId = jenkinsArtifactoryServer.getResolvingCredentialsConfig().getCredentialsId();
+        } else {
+            Credentials serverCredentials = jenkinsArtifactoryServer.getResolvingCredentialsConfig().provideCredentials(parent);
+            username = serverCredentials.getUsername();
+            password = serverCredentials.getPassword();
+        }
+        bypassProxy = jenkinsArtifactoryServer.isBypassProxy();
+        connection.setRetry(jenkinsArtifactoryServer.getConnectionRetry());
+        connection.setTimeout(jenkinsArtifactoryServer.getTimeout());
     }
 
     public CredentialsConfig createCredentialsConfig() {
@@ -230,6 +252,18 @@ public class ArtifactoryServer implements Serializable {
     }
 
     @Whitelisted
+    public void buildAppend(BuildInfo buildInfo, String buildName, String buildNumber) {
+        Map<String, Object> stepVariables = Maps.newLinkedHashMap();
+        stepVariables.put(BUILD_INFO, buildInfo);
+        stepVariables.put(BUILD_NAME, buildName);
+        stepVariables.put(BUILD_NUMBER, buildNumber);
+        stepVariables.put(SERVER, this);
+
+        // Throws CpsCallableInvocation - Must be the last line in this method
+        cpsScript.invokeMethod("buildAppend", stepVariables);
+    }
+
+    @Whitelisted
     public void promote(Map<String, Object> promotionParams) {
         Map<String, Object> stepVariables = Maps.newLinkedHashMap();
         stepVariables.put("promotionConfig", Utils.createPromotionConfig(promotionParams, true));
@@ -347,5 +381,13 @@ public class ArtifactoryServer implements Serializable {
     @Whitelisted
     public void setDeploymentThreads(int deploymentThreads) {
         this.deploymentThreads = deploymentThreads;
+    }
+
+    public String getPlatformUrl() {
+        return platformUrl;
+    }
+
+    public void setPlatformUrl(String platformUrl) {
+        this.platformUrl = platformUrl;
     }
 }
