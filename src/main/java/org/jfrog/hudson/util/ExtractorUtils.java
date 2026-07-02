@@ -16,19 +16,21 @@
 
 package org.jfrog.hudson.util;
 
-import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
 import hudson.EnvVars;
 import hudson.FilePath;
 import hudson.Util;
-import hudson.model.*;
-import hudson.slaves.SlaveComputer;
+import hudson.model.AbstractBuild;
+import hudson.model.Run;
+import hudson.model.TaskListener;
 import hudson.util.IOUtils;
 import jenkins.model.Jenkins;
 import jenkins.security.MasterToSlaveCallable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.HttpEntity;
+import org.jfrog.build.api.multiMap.ListMultimap;
+import org.jfrog.build.api.multiMap.Multimap;
 import org.jfrog.build.api.util.NullLog;
 import org.jfrog.build.extractor.ci.BuildInfoConfigProperties;
 import org.jfrog.build.extractor.ci.BuildInfoFields;
@@ -37,6 +39,7 @@ import org.jfrog.build.extractor.ci.Vcs;
 import org.jfrog.build.extractor.clientConfiguration.ArtifactoryClientConfiguration;
 import org.jfrog.build.extractor.clientConfiguration.ClientProperties;
 import org.jfrog.build.extractor.clientConfiguration.IncludeExcludePatterns;
+import org.jfrog.build.extractor.clientConfiguration.util.encryption.EncryptionKeyPair;
 import org.jfrog.build.extractor.clientConfiguration.util.spec.SpecsHelper;
 import org.jfrog.hudson.ArtifactoryServer;
 import org.jfrog.hudson.CredentialsConfig;
@@ -52,8 +55,16 @@ import org.jfrog.hudson.util.plugins.MultiConfigurationUtils;
 import org.jfrog.hudson.util.publisher.PublisherContext;
 
 import javax.annotation.Nullable;
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
 import java.io.*;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.util.*;
+
+import static org.jfrog.build.api.BuildInfoConfigProperties.*;
 
 /**
  * @author Tomer Cohen
@@ -70,7 +81,7 @@ public class ExtractorUtils {
     public static final String GIT_BRANCH = "GIT_BRANCH";
     public static final String GIT_MESSAGE = "GIT_MESSAGE";
 
-    private final static Set<Character> PROPERTIES_SPECIAL_CHARS = new HashSet<>(Arrays.asList('|', ',', ';', '=', '/', '?', '#', '[', ']', '@', '!', '$', '&', '\'', '(', ')', '*', '+', '%', '"'));
+    private final static Set<Character> PROPERTIES_SPECIAL_CHARS = new HashSet<>(Arrays.asList('|', ',', ';', '='));
 
     private ExtractorUtils() {
         // utility class
@@ -159,8 +170,8 @@ public class ExtractorUtils {
             if (c == '\\') {
                 // Next char already escaped
                 escaped = true;
-            } else if ((c > 127 || PROPERTIES_SPECIAL_CHARS.contains(c)) && !escaped) {
-                // Handle unescaped non-ascii or special char
+            } else if (PROPERTIES_SPECIAL_CHARS.contains(c) && !escaped) {
+                // Special char but not escaped
                 builder.append("\\");
             } else {
                 escaped = false;
@@ -201,7 +212,7 @@ public class ExtractorUtils {
      * @param resolverContext  A context for resolver settings
      */
     public static ArtifactoryClientConfiguration addBuilderInfoArguments(Map<String, String> env, Run build, TaskListener listener,
-                                                                         PublisherContext publisherContext, ResolverContext resolverContext, FilePath ws, hudson.Launcher launcher)
+                                                                         PublisherContext publisherContext, ResolverContext resolverContext, FilePath ws, hudson.Launcher launcher, boolean skipEncryption)
             throws Exception {
         ArtifactoryClientConfiguration configuration = getArtifactoryClientConfiguration(env, build,
                 null, listener, publisherContext, resolverContext);
@@ -212,7 +223,7 @@ public class ExtractorUtils {
         // Create tempdir for properties file
         FilePath tempDir = createAndGetTempDir(ws);
 
-        persistConfiguration(configuration, env, tempDir, launcher);
+        persistConfiguration(configuration, env, tempDir, skipEncryption);
         return configuration;
     }
 
@@ -549,45 +560,40 @@ public class ExtractorUtils {
     }
 
     public static void persistConfiguration(ArtifactoryClientConfiguration configuration, Map<String, String> env, FilePath ws,
-                                            hudson.Launcher launcher) throws IOException, InterruptedException {
-        FilePath propertiesFile = ws.createTextTempFile("buildInfo", ".properties", "");
-        ActionableHelper.deleteFilePathOnExit(propertiesFile);
-        configuration.setPropertiesFile(propertiesFile.getRemote());
-        env.put("BUILDINFO_PROPFILE", propertiesFile.getRemote());
-        env.put(BuildInfoConfigProperties.PROP_PROPS_FILE, propertiesFile.getRemote());
-        // Jenkins prefixes env variables with 'env' but we need it clean..
-        System.setProperty(BuildInfoConfigProperties.PROP_PROPS_FILE, propertiesFile.getRemote());
-        if (!(getComputer(launcher) instanceof SlaveComputer)) {
-            configuration.persistToPropertiesFile();
-        } else {
-            try {
-                Properties properties = new Properties();
-                properties.putAll(configuration.getAllRootConfig());
-                properties.putAll(configuration.getAllProperties());
-                // Properties that have the 'artifactory.' prefix are deprecated.
-                // For backward compatibility reasons, both will be added to the props map.
-                // The build-info 2.32.3 is the last version to be using the deprecated properties as its primary.
-                for (String key : properties.stringPropertyNames()) {
-                    properties.put("artifactory." + key, properties.getProperty(key));
-                }
-                OutputStream os = propertiesFile.write();
-                try {
-                    properties.store(os, "");
-                } finally {
-                    IOUtils.closeQuietly(os);
-                }
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        }
+                                            boolean skipEncryption) throws IOException, InterruptedException {
+        FilePath propertiesFile = createPropertiesFile(ws);
+        setPersistConfigurationEnv(configuration, propertiesFile, env);
+        savePropertiesToFile(configuration, propertiesFile, env, skipEncryption);
     }
 
-    private static Computer getComputer(hudson.Launcher launcher) {
-        Computer computer = Computer.currentComputer();
-        if (computer != null) {
-            return computer;
-        } else {
-            return Utils.getCurrentComputer(launcher);
+    private static FilePath createPropertiesFile(FilePath ws) throws IOException, InterruptedException {
+        FilePath propertiesFile = ws.createTextTempFile("buildInfo", ".properties", "");
+        ActionableHelper.deleteFilePathOnExit(propertiesFile);
+        return propertiesFile;
+    }
+
+    private static void setPersistConfigurationEnv(ArtifactoryClientConfiguration configuration, FilePath propertiesFile,
+                                                   Map<String, String> env) {
+        configuration.setPropertiesFile(propertiesFile.getRemote());
+        env.put(ENV_BUILDINFO_PROPFILE, propertiesFile.getRemote());
+        env.put(BuildInfoConfigProperties.PROP_PROPS_FILE, propertiesFile.getRemote());
+        // Jenkins prefixes env variables with 'env' but we need it clean.
+        System.setProperty(BuildInfoConfigProperties.PROP_PROPS_FILE, propertiesFile.getRemote());
+    }
+
+    private static void savePropertiesToFile(ArtifactoryClientConfiguration configuration, FilePath propertiesFile,
+                                             Map<String, String> env, boolean skipEncryption) {
+        try (OutputStream outputStream = propertiesFile.write()) {
+            if (skipEncryption) {
+                configuration.persistToPropertiesFile(outputStream);
+            } else {
+                EncryptionKeyPair keyPair = configuration.persistToEncryptedPropertiesFile(outputStream);
+                env.put(ENV_PROPERTIES_FILE_KEY, keyPair.getStringSecretKey());
+                env.put(ENV_PROPERTIES_FILE_KEY_IV, keyPair.getStringIv());
+            }
+        } catch (IOException | InterruptedException | InvalidAlgorithmParameterException | NoSuchPaddingException |
+                 IllegalBlockSizeException | NoSuchAlgorithmException | BadPaddingException | InvalidKeyException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -595,7 +601,7 @@ public class ExtractorUtils {
                                                 ArtifactoryClientConfiguration.PublisherHandler publisher,
                                                 Map<String, String> env) {
         String deploymentProperties = Util.replaceMacro(context.getDeploymentProperties(), env);
-        ArrayListMultimap<String, String> params = ArrayListMultimap.create();
+        Multimap<String, String> params = new ListMultimap<>();
         SpecsHelper.fillPropertiesMap(deploymentProperties, params);
         publisher.addMatrixParams(params);
     }

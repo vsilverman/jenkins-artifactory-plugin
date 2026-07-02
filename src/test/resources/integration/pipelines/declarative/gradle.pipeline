@@ -29,7 +29,7 @@ node("TestSlave") {
     rtGradleResolver(
             id: "GRADLE_RESOLVER",
             serverId: serverId,
-            repo: "${JCENTER_REMOTE_REPO}",
+            repo: "${MAVEN_REMOTE_REPO}",
     )
 
     stage "Copy project example"
@@ -49,7 +49,6 @@ node("TestSlave") {
             buildNumber: buildNumber,
             usesPlugin: true,
             rootDir: 'declarative-gradle-example',
-            buildFile: 'build.gradle',
             tasks: 'clean artifactoryPublish',
             deployerId: "GRADLE_DEPLOYER",
             resolverId: "GRADLE_RESOLVER",

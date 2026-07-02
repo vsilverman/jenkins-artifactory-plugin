@@ -25,7 +25,7 @@
     </parent>
 
     <artifactId>artifactory</artifactId>
-    <version>3.18.x-SNAPSHOT</version>
+    <version>4.0.x-SNAPSHOT</version>
     <packaging>hpi</packaging>
     <name>Jenkins Artifactory Plugin</name>
     <description>Integrates Artifactory to Jenkins</description>
@@ -33,7 +33,7 @@
 
     <properties>
         <!-- Minimal version required by Pipeline dependencies in 2.14.0 -->
-        <jenkins.version>2.235.5</jenkins.version>
+        <jenkins.version>2.263.1</jenkins.version>
         <java.level>8</java.level>
         <!-- TODO: enforcer is full of upper bound dependency issues, including real ones -->
         <enforcer.skip>true</enforcer.skip>
@@ -41,8 +41,8 @@
         <!--Skip integration tests unless explicitly requested with -DskipITs=false-->
         <skipITs>true</skipITs>
 
-        <buildinfo.version>2.39.8</buildinfo.version>
-        <buildinfo.gradle.version>4.31.8</buildinfo.gradle.version>
+        <buildinfo.version>2.41.21</buildinfo.version>
+        <buildinfo.gradle.version>5.2.3</buildinfo.gradle.version>
     </properties>
 
     <repositories>
@@ -92,8 +92,8 @@
     </organization>
 
     <issueManagement>
-        <system>jira</system>
-        <url>https://www.jfrog.com/jira/browse/HAP</url>
+        <system>GitHub Issues</system>
+        <url>https://github.com/jfrog/jenkins-artifactory-plugin/issues</url>
     </issueManagement>
 
     <licenses>
@@ -143,7 +143,7 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>apache-httpcomponents-client-4-api</artifactId>
-            <version>4.5.10-1.0</version>
+            <version>4.5.13-1.0</version>
             <exclusions>
                 <!-- An updated version of httpcomponents is received from the buildinfo dependency -->
                 <exclusion>
@@ -210,7 +210,7 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>mailer</artifactId>
-            <version>1.32.1</version>
+            <version>1.34.2</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
@@ -227,7 +227,7 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>matrix-project</artifactId>
-            <version>1.18</version>
+            <version>1.18.1</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
@@ -425,13 +425,18 @@
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
-            <version>2.8.0</version>
+            <version>2.14.0</version>
         </dependency>
         <dependency>
             <!-- commons-compress is in use in the Go extractor -->
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-compress</artifactId>
-            <version>1.21</version>
+            <version>1.26.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.14.0</version>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -453,7 +458,12 @@
         <dependency>
             <groupId>org.apache.ivy</groupId>
             <artifactId>ivy</artifactId>
-            <version>2.5.1</version>
+            <version>2.5.2</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jenkins.plugins</groupId>
+            <artifactId>jersey2-api</artifactId>
+            <version>2.35-8</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
@@ -465,7 +475,25 @@
                     <groupId>org.jenkins-ci.plugins</groupId>
                     <artifactId>branch-api</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>com.atlassian.jira</groupId>
+                    <artifactId>jira-rest-java-client-api</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.atlassian.jira</groupId>
+                    <artifactId>jira-rest-java-client-core</artifactId>
+                </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.atlassian.jira</groupId>
+            <artifactId>jira-rest-java-client-api</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+        <dependency>
+            <groupId>com.atlassian.jira</groupId>
+            <artifactId>jira-rest-java-client-core</artifactId>
+            <version>5.2.5</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
@@ -498,7 +526,7 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-multibranch</artifactId>
-            <version>2.17</version>
+            <version>2.23.1</version>
             <optional>true</optional>
             <exclusions>
                 <exclusion>
@@ -519,6 +547,12 @@
             <version>2.4.21</version>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>org.jenkins-ci.plugins</groupId>
+            <artifactId>jackson2-api</artifactId>
+            <version>2.13.2.20220328-281.v9ecc7a_5e834f</version>
+        </dependency>
+
         <!--Tests-->
         <dependency>
             <groupId>org.jenkins-ci.main</groupId>
@@ -570,6 +604,22 @@
         </dependency>
         <!--/Tests-->
     </dependencies>
+
+    <!-- TODO: Remove this section when these transitive dependencies are upgraded in our direct dependency org.mock-server.mockserver-netty -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>1.77</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcpkix-jdk18on</artifactId>
+                <version>1.77</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
         <plugins>

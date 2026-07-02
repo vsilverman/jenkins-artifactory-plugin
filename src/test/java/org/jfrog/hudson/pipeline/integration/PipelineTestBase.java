@@ -245,7 +245,6 @@ public class PipelineTestBase {
             put("MAVEN_JIB_PROJECT_PATH", getProjectPath("maven-jib-example"));
             put("GRADLE_PROJECT_PATH", getProjectPath("gradle-example"));
             put("GRADLE_CI_PROJECT_PATH", getProjectPath("gradle-example-ci"));
-            put("GRADLE_CI_PUBLICATION_PROJECT_PATH", getProjectPath("gradle-example-ci-publications"));
             put("NPM_PROJECT_PATH", getProjectPath("npm-example"));
             put("GO_PROJECT_PATH", getProjectPath("go-example"));
             put("PIP_PROJECT_PATH", getProjectPath("pip-example"));
@@ -256,7 +255,7 @@ public class PipelineTestBase {
             put("TEST_TEMP_FOLDER", fixWindowsPath(testTemporaryFolder.getRoot().getAbsolutePath()));
             put("LOCAL_REPO1", getRepoKey(TestRepository.LOCAL_REPO1));
             put("LOCAL_REPO2", getRepoKey(TestRepository.LOCAL_REPO2));
-            put("JCENTER_REMOTE_REPO", getRepoKey(TestRepository.JCENTER_REMOTE_REPO));
+            put("MAVEN_REMOTE_REPO", getRepoKey(TestRepository.MAVEN_REMOTE_REPO));
             put("NPM_LOCAL", getRepoKey(TestRepository.NPM_LOCAL));
             put("NPM_REMOTE", getRepoKey(TestRepository.NPM_REMOTE));
             put("GO_LOCAL", getRepoKey(TestRepository.GO_LOCAL));
